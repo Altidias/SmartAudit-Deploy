@@ -13,7 +13,7 @@ training:
   gradient_accumulation_steps: auto
   
   # Fixed parameters
-  learning_rate: 5e-4
+  learning_rate: 0.0005
   num_epochs: 3
   warmup_steps: 100
   weight_decay: 0.01
