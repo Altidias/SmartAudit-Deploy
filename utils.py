@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 import subprocess
 import psutil
+import sys
 
 def get_gpu_info():
     if not torch.cuda.is_available():
