@@ -1,0 +1,90 @@
+model:
+  name: "Qwen/Qwen2.5-Coder-7B-Instruct"
+  trust_remote_code: true
+  use_cache: false
+  
+data:
+  max_length: 4096
+  processed_data_path: "./processed_data"
+  
+training:
+  # These will be auto-adjusted based on GPU
+  batch_size: auto  
+  gradient_accumulation_steps: auto
+  
+  # Fixed parameters
+  learning_rate: 5e-4
+  num_epochs: 3
+  warmup_steps: 100
+  weight_decay: 0.01
+  
+  # Optimization
+  fp16: true
+  fp16_opt_level: "O2"
+  gradient_checkpointing: true
+  optim: "adamw_8bit"  # or "adamw_torch" for more memory
+  max_grad_norm: 1.0
+  
+  # Saving
+  save_strategy: "steps"
+  save_steps: 100
+  save_total_limit: 3
+  evaluation_strategy: "steps"
+  eval_steps: 100
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+  
+  # Logging
+  logging_steps: 10
+  logging_first_step: true
+  report_to: "wandb"  # set to "none" if dont want
+  
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  bias: "none"
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+paths:
+  output_dir: "./output"
+  cache_dir: "./cache"
+  log_dir: "./logs"
+  
+wandb:
+  project: "ftaudit-cloud"
+  run_name: auto  # will be auto-generated
+  tags: ["cloud", "qwen", "vulnerability-detection"]
+  
+# GPU-specific overrides
+gpu_configs:
+  # A100 80GB
+  a100-80gb:
+    batch_size: 16
+    gradient_accumulation_steps: 1
+    
+  # A100 40GB  
+  a100-40gb:
+    batch_size: 8
+    gradient_accumulation_steps: 2
+    
+  # RTX 4090/3090 24GB
+  rtx-24gb:
+    batch_size: 4
+    gradient_accumulation_steps: 4
+    
+  # RTX 4070/3080 16GB
+  rtx-16gb:
+    batch_size: 2
+    gradient_accumulation_steps: 8
+    
+  default:
+    batch_size: 1
+    gradient_accumulation_steps: 16
