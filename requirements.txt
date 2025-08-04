@@ -11,3 +11,4 @@ safetensors>=0.4.0
 tqdm
 pyyaml
 python-dotenv
+bitsandbytes
