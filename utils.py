@@ -26,6 +26,9 @@ def get_gpu_info():
     elif "A100" in gpu_name and memory_gb > 35:
         config = "a100-40gb"
         batch_size, grad_accum = 8, 2
+    elif "A6000" in gpu_name and memory_gb > 45:
+        config = "rtx-a6000-48gb"
+        batch_size, grad_accum = 10, 2
     elif ("4090" in gpu_name or "3090" in gpu_name) and memory_gb > 20:
         config = "rtx-24gb"
         batch_size, grad_accum = 4, 4
