@@ -86,8 +86,8 @@ gpu_configs:
     gradient_accumulation_steps: 8
 
   rtx-a6000-48gb:
-    batch_size: 10
-    gradient_accumulation_steps: 2
+    batch_size: 6
+    gradient_accumulation_steps: 3
     
   default:
     batch_size: 1
