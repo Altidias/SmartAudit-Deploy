@@ -16,6 +16,7 @@ from peft import LoraConfig, get_peft_model, TaskType
 import wandb
 from datasets import load_from_disk
 from dotenv import load_dotenv
+import json
 
 from utils import (
     get_gpu_info,
@@ -152,7 +153,7 @@ def main():
         save_strategy=config['training']['save_strategy'],
         save_steps=config['training']['save_steps'],
         save_total_limit=config['training']['save_total_limit'],
-        evaluation_strategy=config['training']['eval_strategy'],
+        eval_strategy=config['training']['eval_strategy'],
         eval_steps=config['training']['eval_steps'],
         load_best_model_at_end=config['training']['load_best_model_at_end'],
         metric_for_best_model=config['training']['metric_for_best_model'],
