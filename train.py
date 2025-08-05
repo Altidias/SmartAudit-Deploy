@@ -7,20 +7,21 @@ from transformers import TrainingArguments
 # Add src to path
 sys.path.append(str(Path(__file__).parent))
 
-from src.config import load_config, save_training_info, find_latest_checkpoint, setup_environment, check_production_readiness
+from src.config import load_config, save_training_info, find_latest_checkpoint, setup_environment
 from src.model import load_model_and_tokenizer, setup_lora, save_model_and_adapters
 from src.data import load_datasets, get_data_collator
-from src.trainer import VulnerabilityDetectionTrainer
-from src.metrics import VulnerabilityMetrics, MetricsCallback, generate_metrics_report, save_confusion_matrix_plot
+from src.trainer import SmartAuditTrainer
+from src.metrics import SmartAuditMetrics, SmartAuditCallback
 from src.mlflow_utils import setup_mlflow, MLflowCallback, log_model_info, log_final_results, end_mlflow_run
 from src.gpu_utils import clear_gpu_memory, find_optimal_batch_size, get_gpu_info
+from src.config import check_readiness
 
 def main():
     setup_environment()
     clear_gpu_memory()
     
     print("="*50)
-    print("Vulnerability Detection Training")
+    print("Student Model Training")
     print("="*50)
     
     # Load configuration
@@ -34,7 +35,7 @@ def main():
     model, tokenizer = load_model_and_tokenizer(config)
     model = setup_lora(model, config)
     
-    # Find optimal batch size if needed
+    # Find optimal batch size
     if config['training']['batch_size'] == 'auto':
         print("\nAuto-detecting optimal batch size...")
         batch_size, grad_accum = find_optimal_batch_size(
@@ -42,28 +43,16 @@ def main():
         )
         config['training']['batch_size'] = batch_size
         config['training']['gradient_accumulation_steps'] = grad_accum
-    else:
-        print(f"\nUsing configured batch size: {config['training']['batch_size']}")
     
-    # Log model info
     log_model_info(model, config)
     
-    # Load datasets
     train_dataset, eval_dataset = load_datasets(config)
     data_collator = get_data_collator(tokenizer)
     
-    # Setup metrics
-    task_type = config['metrics'].get('task_type', 'binary')
-    print(f"\nUsing {task_type} classification mode")
+    print(f"\nInitializing multi-class metrics...")
+    metrics_calc = SmartAuditMetrics(tokenizer)
+    print(f"  Total vulnerability types: {metrics_calc.num_classes}")
     
-    metrics_calc = VulnerabilityMetrics(
-        tokenizer,
-        vulnerable_token=config['metrics']['vulnerable_token'],
-        safe_token=config['metrics']['safe_token'],
-        task_type=task_type
-    )
-    
-    # Setup training arguments
     training_args = TrainingArguments(
         output_dir=config['paths']['output_dir'],
         per_device_train_batch_size=config['training']['batch_size'],
@@ -99,15 +88,13 @@ def main():
     callbacks = []
     if mlflow_run_id:
         callbacks.append(MLflowCallback())
-    callbacks.append(MetricsCallback(metrics_calc))
+    callbacks.append(SmartAuditCallback(metrics_calc))
     
-    # Check for checkpoint
     checkpoint = find_latest_checkpoint(config['paths']['output_dir'])
     if checkpoint:
         print(f"\n✓ Resuming from checkpoint: {checkpoint}")
     
-    # Create trainer
-    trainer = VulnerabilityDetectionTrainer(
+    trainer = SmartAuditTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
@@ -116,11 +103,9 @@ def main():
         data_collator=data_collator,
         callbacks=callbacks,
         compute_metrics=metrics_calc.compute_metrics,
-        vulnerable_weight=config['training']['vulnerable_weight'],
-        task_type=task_type
+        vulnerable_weight=config['training']['vulnerable_weight']
     )
     
-    # Training info
     gpu_info = get_gpu_info()
     effective_batch_size = config['training']['batch_size'] * config['training']['gradient_accumulation_steps']
     total_steps = len(train_dataset) // effective_batch_size * config['training']['num_epochs']
@@ -128,32 +113,34 @@ def main():
     print("\n" + "="*50)
     print("Training Configuration")
     print("="*50)
-    print(f"Model: {config['model']['name']}")
+    print(f"Student Model: {config['model']['name']}")
     print(f"GPU: {gpu_info['name']} ({gpu_info['memory_gb']} GB)")
     print(f"Batch size: {config['training']['batch_size']}")
     print(f"Gradient accumulation: {config['training']['gradient_accumulation_steps']}")
     print(f"Effective batch size: {effective_batch_size}")
     print(f"Total steps: {total_steps}")
+    print(f"Vulnerability types: {metrics_calc.num_classes}")
     if mlflow_run_id:
         print(f"MLflow Run ID: {mlflow_run_id}")
     print("="*50 + "\n")
     
     try:
-        # Train
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         
         # Save model
-        print("\nSaving model...")
+        print("\nSaving student model...")
         save_model_and_adapters(model, tokenizer, config['paths']['output_dir'])
         
-        # Generate metrics report
+        print("\nRunning final evaluation...")
+        eval_results = trainer.evaluate()
+        
+        from src.metrics import generate_metrics_report, save_confusion_matrix_plot
         metrics_report = generate_metrics_report(
             trainer, eval_dataset, metrics_calc, config['paths']['output_dir']
         )
         
-        # Save confusion matrix plot
         if config['metrics']['log_confusion_matrix']:
-            cm_path = save_confusion_matrix_plot(
+            save_confusion_matrix_plot(
                 metrics_calc.compute_confusion_matrix(trainer.predict(eval_dataset)),
                 config['paths']['output_dir'],
                 metrics_calc
@@ -162,21 +149,20 @@ def main():
         # Log final results to MLflow
         log_final_results(metrics_report, config['paths']['output_dir'])
         
-        # Check production readiness
-        check_production_readiness(metrics_report['final_metrics'], config)
+        check_readiness(eval_results, config)
         
-        print("\n✓ Training completed successfully!")
-        print(f"  Models saved to: {config['paths']['output_dir']}")
+        print("\nTraining completed successfully!")
+        print(f"  Student model saved to: {config['paths']['output_dir']}")
         
         end_mlflow_run("FINISHED")
         
     except KeyboardInterrupt:
-        print("\n⚠ Training interrupted by user")
+        print("\nTraining interrupted by user")
         save_model_and_adapters(model, tokenizer, config['paths']['output_dir'])
         end_mlflow_run("INTERRUPTED")
         
     except Exception as e:
-        print(f"\n✗ Training failed: {e}")
+        print(f"\nTraining failed: {e}")
         end_mlflow_run("FAILED")
         raise
         

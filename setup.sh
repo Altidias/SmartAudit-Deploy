@@ -1,7 +1,7 @@
 #!/bin/bash
 
-echo "Cloud Training Setup"
-echo "===================="
+echo "Student Model Training Setup"
+echo "========================================"
 
 # Find Python
 if command -v python3 &>/dev/null; then
@@ -15,76 +15,82 @@ fi
 
 echo "Python: $($PYTHON_CMD --version)"
 
-# Check GPU
 echo -e "\nGPU Information:"
 if command -v nvidia-smi &>/dev/null; then
     nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 else
-    echo "No GPU detected"
+    echo "ERROR: No GPU detected. requires GPU for training."
+    exit 1
 fi
 
-# Virtual environment (optional)
-if [ "$USE_VENV" = "true" ]; then
-    echo -e "\nCreating virtual environment..."
-    $PYTHON_CMD -m venv venv
-    source venv/bin/activate
+if [ "$USE_VENV" = "true" ] || [ -z "$USE_VENV" ]; then
+    echo -e "\nCreating venv..."
+    $PYTHON_CMD -m venv smartaudit_env
+    source smartaudit_env/bin/activate
 fi
 
-# Install dependencies
 echo -e "\nInstalling dependencies..."
 $PYTHON_CMD -m pip install --upgrade pip
 
-# Fix blinker package issue (distutils installed)
-echo "Fixing blinker package..."
-$PYTHON_CMD -m pip install --ignore-installed blinker 2>/dev/null || true
-
 # Install requirements
 echo "Installing requirements..."
-$PYTHON_CMD -m pip install -r requirements.txt --exists-action i
+$PYTHON_CMD -m pip install -r requirements.txt --upgrade
 
-# Extract data if available
 if [ -f "processed_data.zip" ]; then
-    echo -e "\nExtracting data..."
+    echo -e "\nExtracting dataset..."
     unzip -q processed_data.zip
-    echo "Data extracted"
+    echo "Dataset extracted"
+    
+    # Verify vulnerability types file
+    if [ -f "processed_data/vuln_types.json" ]; then
+        NUM_TYPES=$(python -c "import json; print(len(json.load(open('processed_data/vuln_types.json'))))")
+        echo "Vulnerability types loaded: $NUM_TYPES"
+    fi
 else
-    echo "Warning: processed_data.zip not found"
+    echo "ERROR: dataset (processed_data.zip) not found!"
+    exit 1
 fi
 
-# Create directories
 mkdir -p output cache logs src/
 
-# Environment setup
 if [ -f ".env" ]; then
-    echo -e "\nLoading .env file..."
+    echo -e "\nLoading environment variables..."
     export $(grep -v '^#' .env | xargs)
 fi
 
-# Test MLflow connection
 if [ ! -z "$MLFLOW_TRACKING_URI" ]; then
-    echo -e "\nTesting MLflow..."
+    echo -e "\nTesting MLflow connection..."
     $PYTHON_CMD -c "
 import requests
 try:
     r = requests.get('$MLFLOW_TRACKING_URI/health', timeout=5)
-    print('MLflow: OK' if r.status_code == 200 else f'MLflow: Error {r.status_code}')
+    print('MLflow: Connected' if r.status_code == 200 else f'MLflow: Error {r.status_code}')
 except:
-    print('MLflow: Connection failed')
+    print('MLflow: Not available (training will continue without MLflow)')
 "
 fi
 
-# HuggingFace login
+# HuggingFace login (required for model download)
 if [ ! -z "$HF_TOKEN" ]; then
-    echo -e "\nConfiguring HuggingFace..."
+    echo -e "\nConfiguring HuggingFace access..."
     $PYTHON_CMD -c "from huggingface_hub import login; login(token='$HF_TOKEN', add_to_git_credential=False)"
+else
+    echo -e "\nWARNING: HF_TOKEN not set. You may need to login manually."
 fi
 
-# Set CUDA optimizations
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 export CUDA_LAUNCH_BLOCKING=0
+export TOKENIZERS_PARALLELISM=false
 
-echo -e "\nSetup complete!"
+echo -e "\n========================================"
+echo "Setup Complete!"
+echo "========================================"
+echo ""
+echo "Model: Qwen2.5-Coder-7B-Instruct (Student)"
+echo "Framework: FTSmartAudit Knowledge Distillation"
 echo ""
 echo "To start training: $PYTHON_CMD train.py"
 echo "To test GPU: $PYTHON_CMD scripts/test_gpu.py"
-echo "To monitor: watch -n 1 nvidia-smi"
+echo "To evaluate model: $PYTHON_CMD scripts/evaluate.py"
+echo "To monitor GPU: watch -n 1 nvidia-smi"
+echo ""

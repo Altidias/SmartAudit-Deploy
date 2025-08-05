@@ -4,7 +4,8 @@ from peft import LoraConfig, get_peft_model, TaskType
 from typing import Dict, Tuple
 
 def load_model_and_tokenizer(config: Dict) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
-    print(f"\nLoading model: {config['model']['name']}")
+    """Load model and tokenizer for student training"""
+    print(f"\nLoading student model: {config['model']['name']}")
     
     model = AutoModelForCausalLM.from_pretrained(
         config['model']['name'],
@@ -25,13 +26,15 @@ def load_model_and_tokenizer(config: Dict) -> Tuple[AutoModelForCausalLM, AutoTo
         cache_dir=config['paths']['cache_dir']
     )
     
+    # Ensure padding token is set
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
     return model, tokenizer
 
 def setup_lora(model: AutoModelForCausalLM, config: Dict) -> AutoModelForCausalLM:
-    print("\nApplying LoRA configuration")
+    """Setup LoRA following FTSA configuration"""
+    print("\nApplyig LoRA configuration")
     
     peft_config = LoraConfig(
         r=config['lora']['r'],
@@ -45,17 +48,29 @@ def setup_lora(model: AutoModelForCausalLM, config: Dict) -> AutoModelForCausalL
     
     model = get_peft_model(model, peft_config)
     
+    # Log parameter efficiency
     trainable_params, total_params = model.get_nb_trainable_parameters()
-    print(f"Trainable parameters: {trainable_params:,} ({trainable_params/total_params*100:.2f}%)")
+    print(f"Parameter efficiency:")
+    print(f"  Total parameters: {total_params:,}")
+    print(f"  Trainable parameters: {trainable_params:,}")
+    print(f"  Efficiency ratio: {trainable_params/total_params*100:.2f}%")
     
     return model
 
 def save_model_and_adapters(model, tokenizer, output_dir: str):
+    """Save student model and LoRA adapters"""
     import os
     
-    # Save full mdel
-    model.save_pretrained(os.path.join(output_dir, "final_model"))
-    tokenizer.save_pretrained(os.path.join(output_dir, "final_model"))
+    print("\nSaving student model...")
     
-    # Save LoRA adapters separately
-    model.save_pretrained(os.path.join(output_dir, "lora_adapters"))
+    # Save full model (student model ready for deployment)
+    full_model_dir = os.path.join(output_dir, "student_model")
+    model.save_pretrained(full_model_dir)
+    tokenizer.save_pretrained(full_model_dir)
+    
+    # Save LoRA adapters separately (for efficient distribution)
+    adapters_dir = os.path.join(output_dir, "lora_adapters")
+    model.save_pretrained(adapters_dir)
+    
+    print(f"  Full model saved to: {full_model_dir}")
+    print(f"  LoRA adapters saved to: {adapters_dir}")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Evaluate a trained model"""
 
 import sys
 import json
@@ -10,27 +9,26 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.config import load_config
 from src.model import load_model_and_tokenizer
 from src.data import load_datasets
-from src.metrics import VulnerabilityMetrics
-from src.trainer import VulnerabilityDetectionTrainer
+from src.metrics import SmartAuditMetrics
+from src.trainer import SmartAuditTrainer
 from transformers import TrainingArguments
 from peft import PeftModel
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Evaluate vulnerability detection model")
-    parser.add_argument("--model-path", type=str, default="output/final_model",
+    parser = argparse.ArgumentParser(description="Evaluate SmartAudit student model")
+    parser.add_argument("--model-path", type=str, 
+                      default="output/student_model",
                       help="Path to model directory")
     parser.add_argument("--lora-path", type=str, default=None,
                       help="Path to LoRA adapters (if separate)")
     args = parser.parse_args()
     
-    print("Model Evaluation")
+    print("SmartAudit Model Evaluation")
     print("="*50)
     
-    # Load config
     config = load_config()
     
-    # Load model
     print(f"Loading model from: {args.model_path}")
     model, tokenizer = load_model_and_tokenizer(config)
     
@@ -38,17 +36,10 @@ def main():
         print(f"Loading LoRA adapters from: {args.lora_path}")
         model = PeftModel.from_pretrained(model, args.lora_path)
     
-    # Load evaluation dataset
     _, eval_dataset = load_datasets(config)
     
-    # Setup metrics
-    metrics_calc = VulnerabilityMetrics(
-        tokenizer,
-        vulnerable_token=config['metrics']['vulnerable_token'],
-        safe_token=config['metrics']['safe_token']
-    )
+    metrics_calc = SmartAuditMetrics(tokenizer)
     
-    # Create minimal trainer for evaluation
     training_args = TrainingArguments(
         output_dir="./tmp_eval",
         per_device_eval_batch_size=config['training']['batch_size'],
@@ -58,7 +49,7 @@ def main():
         label_names=['labels']
     )
     
-    trainer = VulnerabilityDetectionTrainer(
+    trainer = SmartAuditTrainer(
         model=model,
         args=training_args,
         eval_dataset=eval_dataset,
@@ -67,68 +58,41 @@ def main():
         vulnerable_weight=config['training']['vulnerable_weight']
     )
     
-    # Evaluate
-    print("\nRunning evaluation...")
+    print("\nRunning mevaluation...")
     eval_results = trainer.evaluate()
     
-    # Generate detailed report
-    predictions = trainer.predict(eval_dataset)
-    confusion_matrix = metrics_calc.compute_confusion_matrix(predictions)
-    classification_report = metrics_calc.generate_classification_report(predictions)
-    
-    # Display results
     print("\n" + "="*50)
     print("Evaluation Results")
     print("="*50)
     
-    print(f"\nOverall Metrics:")
+    print(f"\nOverall Performance:")
     print(f"  Accuracy: {eval_results.get('eval_accuracy', 0):.4f}")
-    print(f"  Precision: {eval_results.get('eval_precision', 0):.4f}")
-    print(f"  Recall: {eval_results.get('eval_recall', 0):.4f}")
-    print(f"  F1 Score: {eval_results.get('eval_f1', 0):.4f}")
+    print(f"  F1 Macro: {eval_results.get('eval_f1_macro', 0):.4f}")
+    print(f"  Recall (Vulnerable): {eval_results.get('eval_recall_vulnerable', 0):.4f}")
     
-    print(f"\nPer-Class Metrics:")
-    print(f"  Safe contracts:")
-    print(f"    Precision: {eval_results.get('eval_precision_safe', 0):.4f}")
-    print(f"    Recall: {eval_results.get('eval_recall_safe', 0):.4f}")
-    print(f"  Vulnerable contracts:")
-    print(f"    Precision: {eval_results.get('eval_precision_vulnerable', 0):.4f}")
-    print(f"    Recall: {eval_results.get('eval_recall_vulnerable', 0):.4f}")
+    print(f"\nBy Vulnerability Category:")
+    print(f"  Machine-Auditable Recall: {eval_results.get('eval_recall_machine_auditable', 0):.4f}")
+    print(f"  Machine-Unauditable Recall: {eval_results.get('eval_recall_machine_unauditable', 0):.4f}")
     
-    print("\nConfusion Matrix:")
-    print("                 Predicted")
-    print("                 Safe  Vulnerable")
-    print(f"Actual Safe      {confusion_matrix[0, 0]:<5} {confusion_matrix[0, 1]:<5}")
-    print(f"Actual Vulnerable {confusion_matrix[1, 0]:<5} {confusion_matrix[1, 1]:<5}")
+    print(f"\nTop Vulnerability Types Performance:")
+    for key, value in sorted(eval_results.items()):
+        if key.startswith('eval_f1_') and not key.endswith('_macro'):
+            vuln_type = key.replace('eval_f1_', '')
+            if vuln_type != 'safe':
+                print(f"  {vuln_type}: F1={value:.4f}")
     
-    print("\nDetailed Classification Report:")
-    print(classification_report)
+    from src.config import check_readiness
+    check_readiness(eval_results, config)
     
-    # Production readiness check
-    recall_vuln = eval_results.get('eval_recall_vulnerable', 0)
-    precision = eval_results.get('eval_precision', 0)
-    
-    print("\n" + "="*50)
-    print("Production Readiness")
-    print("="*50)
-    
-    if recall_vuln >= config['metrics']['minimum_recall'] and precision >= config['metrics']['minimum_precision']:
-        print("✓ Model is production ready!")
-    elif recall_vuln >= config['metrics']['minimum_recall']:
-        print("⚠ Good recall but needs better precision for production")
-    else:
-        print("✗ Model needs more training to meet production criteria")
-    
-    print(f"\nTarget thresholds:")
-    print(f"  Minimum recall (vulnerable): {config['metrics']['minimum_recall']}")
-    print(f"  Minimum precision: {config['metrics']['minimum_precision']}")
-    
-    # Save results
     results = {
+        "framework": "SmartAudit",
+        "model": config['model']['name'],
         "metrics": eval_results,
-        "confusion_matrix": confusion_matrix.tolist(),
-        "classification_report": classification_report,
-        "production_ready": recall_vuln >= config['metrics']['minimum_recall'] and precision >= config['metrics']['minimum_precision']
+        "num_vulnerability_types": metrics_calc.num_classes,
+        "production_ready": (
+            eval_results.get('eval_recall_vulnerable', 0) >= config['metrics']['minimum_recall_vulnerable'] and
+            eval_results.get('eval_f1_macro', 0) >= config['metrics']['minimum_f1_macro']
+        )
     }
     
     with open("evaluation_results.json", "w") as f:
