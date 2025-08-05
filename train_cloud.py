@@ -69,7 +69,16 @@ class VulnerabilityDetectionTrainer(Trainer):
         self.vulnerable_token_id = tokenizer.encode("vulnerable", add_special_tokens=False)[0]
         self.safe_token_id = tokenizer.encode("safe", add_special_tokens=False)[0]
     
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        """
+        weighted loss for vulnerability detection
+        
+        args:
+            model: the model
+            inputs: iinput dictionary
+            return_outputs: whether to return outputs along with loss
+            num_items_in_batch: number of items in the batch
+        """
         labels = inputs.pop("labels")
         outputs = model(**inputs)
         logits = outputs.get('logits')
