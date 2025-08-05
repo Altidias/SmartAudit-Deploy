@@ -35,7 +35,16 @@ fi
 
 echo -e "\nInstalling dependencies..."
 $PYTHON_CMD -m pip install --upgrade pip
-$PYTHON_CMD -m pip install --force-reinstall --ignore-installed -r requirements.txt
+
+$PYTHON_CMD -m pip install --ignore-installed blinker 2>/dev/null || true
+
+echo "Installing requirements..."
+$PYTHON_CMD -m pip install -r requirements.txt --exists-action i
+
+if ! $PYTHON_CMD -c "import sklearn" 2>/dev/null; then
+    echo "scikit-learn not found, installing..."
+    $PYTHON_CMD -m pip install scikit-learn
+fi
 
 if [ -f "processed_data.zip" ]; then
     echo -e "\nExtracting processed data..."
