@@ -17,8 +17,8 @@ class VulnerabilityMetrics:
             if vuln_types is None:
                 import json
                 import os
-                if os.path.exists('./processed_data_multiclass/vuln_types.json'):
-                    with open('./processed_data_multiclass/vuln_types.json', 'r') as f:
+                if os.path.exists('./processed_data/vuln_types.json'):
+                    with open('./processed_data/vuln_types.json', 'r') as f:
                         vuln_types = json.load(f)
                 else:
                     # Fallback to binary if types not found

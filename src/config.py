@@ -90,20 +90,31 @@ def check_production_readiness(eval_results: Dict, config: Dict):
     print("PRODUCTION READINESS CHECK")
     print("="*50)
     
-    recall_vuln = eval_results.get('eval_recall_vulnerable', 0)
+    # For multiclass, we check average recall across vulnerable classes
+    recall_metric = 'eval_recall_vulnerable'
+    if recall_metric not in eval_results:
+        # Fallback for binary classification
+        recall_metric = 'eval_recall'
+    
+    recall_vuln = eval_results.get(recall_metric, 0)
     precision = eval_results.get('eval_precision', 0)
     min_recall = config['metrics']['minimum_recall']
     min_precision = config['metrics']['minimum_precision']
     
     if recall_vuln >= min_recall and precision >= min_precision:
         print("✓ Model is ready for production!")
-        print(f"  Recall: {recall_vuln:.4f} (target: {min_recall}+)")
+        print(f"  Recall (vulnerable): {recall_vuln:.4f} (target: {min_recall}+)")
         print(f"  Precision: {precision:.4f} (target: {min_precision}+)")
     elif recall_vuln >= min_recall:
         print("⚠ Good recall but low precision - suitable as pre-filter")
-        print(f"  Recall: {recall_vuln:.4f} ✓")
+        print(f"  Recall (vulnerable): {recall_vuln:.4f} ✓")
         print(f"  Precision: {precision:.4f} (target: {min_precision}+)")
     else:
         print("✗ Model needs more training")
-        print(f"  Recall: {recall_vuln:.4f} (target: {min_recall}+)")
+        print(f"  Recall (vulnerable): {recall_vuln:.4f} (target: {min_recall}+)")
         print(f"  Precision: {precision:.4f} (target: {min_precision}+)")
+    
+    # For multiclass, show additional info
+    if 'eval_num_classes' in eval_results:
+        print(f"\nMulti-class model with {eval_results['eval_num_classes']} vulnerability types")
+        print(f"Overall accuracy: {eval_results.get('eval_accuracy', 0):.4f}")

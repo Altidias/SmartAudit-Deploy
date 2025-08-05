@@ -53,10 +53,14 @@ def main():
     data_collator = get_data_collator(tokenizer)
     
     # Setup metrics
+    task_type = config['metrics'].get('task_type', 'binary')
+    print(f"\nUsing {task_type} classification mode")
+    
     metrics_calc = VulnerabilityMetrics(
         tokenizer,
         vulnerable_token=config['metrics']['vulnerable_token'],
-        safe_token=config['metrics']['safe_token']
+        safe_token=config['metrics']['safe_token'],
+        task_type=task_type
     )
     
     # Setup training arguments
@@ -112,7 +116,8 @@ def main():
         data_collator=data_collator,
         callbacks=callbacks,
         compute_metrics=metrics_calc.compute_metrics,
-        vulnerable_weight=config['training']['vulnerable_weight']
+        vulnerable_weight=config['training']['vulnerable_weight'],
+        task_type=task_type
     )
     
     # Training info
@@ -150,7 +155,8 @@ def main():
         if config['metrics']['log_confusion_matrix']:
             cm_path = save_confusion_matrix_plot(
                 metrics_calc.compute_confusion_matrix(trainer.predict(eval_dataset)),
-                config['paths']['output_dir']
+                config['paths']['output_dir'],
+                metrics_calc
             )
         
         # Log final results to MLflow

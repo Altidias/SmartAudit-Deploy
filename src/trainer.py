@@ -15,7 +15,7 @@ class VulnerabilityDetectionTrainer(Trainer):
             self.safe_token_id = tokenizer.encode("safe", add_special_tokens=False)[0]
         elif task_type == "multiclass":
             # Load vulnerability types
-            vuln_types_path = './processed_data_multiclass/vuln_types.json'
+            vuln_types_path = './processed_data/vuln_types.json'
             if os.path.exists(vuln_types_path):
                 with open(vuln_types_path, 'r') as f:
                     self.vuln_types = json.load(f)
