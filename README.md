@@ -1,71 +1,59 @@
-# Cloud Training Deployment
+# Smart Audit Vulnerability Detection Training
 
-This package contains everything needed to train a smart contract vulnerability detection model on cloud GPUs.
+Fine-tuning LLMs to detect vulnerabilities in smart contracts.
 
-## Contents
+## Setup
 
-- `train_cloud.py` - Main training script with auto-GPU detection
-- `config.yaml` - Training configuration (auto-adjusts to GPU)
-- `setup.sh` - One-click environment setup
-- `utils.py` - Helper utilities
-- `requirements.txt` - Python dependencies
-- `processed_data.zip` - Your preprocessed training data
+1. Create environment and install dependencies:
+```bash
+./setup.sh
+```
 
+2. Configure environment variables:
+```bash
+cp .env.example .env
+# Edit .env with your MLflow URI and HuggingFace token
+```
 
-## Local mlflow setup
+3. Test GPU memory (optional):
+```bash
+python scripts/test_gpu.py
+```
 
-1. install mlflow:
-   ```bash
-   pip install mlflow
-   ```
+## Training
 
-2. create data directory:
-   ```bash
-   mkdir C:\mlflow_data
-   ```
+Start training with:
+```bash
+python train.py
+```
 
-3. start mlflow server:
-   ```bash
-   mlflow server --backend-store-uri file:///C:/mlflow_data/mlruns --default-artifact-root file:///C:/mlflow_data/artifacts --host 0.0.0.0 --port 5000
-   ```
+The script will:
+- Automatically detect optimal batch size for your GPU
+- Resume from checkpoints if interrupted
+- Track experiments with MLflow (if configured)
+- Save models and LoRA adapters separately
 
-4. make accessible from cloud using ngrok or similar service, or just host but make sure to use auth:
-   - option a: use ngrok
-     ```bash
-     ngrok http 5000
-     ```
-   - option b: use tailscale for secure connection
+## Configuration
 
-## Cloud GPU setup
+Edit `config.yaml` to adjust:
+- Model selection
+- Training hyperparameters
+- LoRA configuration
+- MLflow tracking
 
-1. upload training package
+## Project Structure
 
-2. setup environment:
-   ```bash
-   chmod +x setup.sh
-   ./setup.sh
-   ```
-   (install unzip and other necassary progs if needed)
+```
+src/
+├── config.py       # Configuration management
+├── data.py         # Dataset loading
+├── gpu_utils.py    # GPU memory management
+├── metrics.py      # Evaluation metrics
+├── mlflow_utils.py # Experiment tracking
+├── model.py        # Model and LoRA setup
+└── trainer.py      # Custom trainer with weighted loss
 
-3. configure mlflow uri:
-   ```bash
-   # edit .env file
-   MLFLOW_TRACKING_URI=https://your-ngrok-url.ngrok.io
-   ```
-
-4. start training:
-   ```bash
-   python train_cloud.py
-   ```
-
-## monitoring
-
-- **MLflow ui**: http://localhost:5000
-- **GPU usage**: `watch -n 1 nvidia-smi`
-- **Training Logs**: check output directory
-
-## Key metrics
-
-- **eval_f1**: overall performance
-- **eval_recall_vulnerable**: catching vulnerabilities
-- **eval_precision**: accuracy of alerts
+scripts/
+├── test_gpu.py     # GPU memory testing
+└── evaluate.py     # Model evaluation
+```
