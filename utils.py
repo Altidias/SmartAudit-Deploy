@@ -12,6 +12,98 @@ from typing import Dict, List, Tuple
 import requests
 from transformers import TrainerCallback
 
+def find_optimal_batch_size(model, tokenizer, max_length=4096, starting_batch_size=8):
+    """
+    Dynamicaly find the optimal batch size using binary search
+    """
+    import gc
+    
+    low = 1
+    high = min(starting_batch_size, 8)
+    optimal_batch_size = 1
+    
+    print(f"Testing batch sizes between {low} and {high}...")
+    
+    test_length = min(512, max_length)  
+    
+    while low <= high:
+        mid = (low + high) // 2
+        
+        try:
+            # Clear cache
+            torch.cuda.empty_cache()
+            gc.collect()
+            
+            dummy_input_ids = torch.randint(
+                0, tokenizer.vocab_size, 
+                (mid, test_length), 
+                device='cuda'
+            )
+            
+            # try forward pass
+            with torch.no_grad():
+                with torch.cuda.amp.autocast():
+                    outputs = model(input_ids=dummy_input_ids)
+                    del outputs
+            
+            # iif suc, try larger batch
+            optimal_batch_size = mid
+            low = mid + 1
+            print(f"Batch size {mid} works with {test_length} tokens")
+            
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                # if OOM, try smaller batch
+                high = mid - 1
+                print(f"Batch size {mid} causes OOM")
+            else:
+                raise e
+        finally:
+            # Clean up
+            if 'dummy_input_ids' in locals():
+                del dummy_input_ids
+            torch.cuda.empty_cache()
+            gc.collect()
+    
+    if optimal_batch_size > 1 and max_length > test_length:
+        print(f"\nVerifying batch size {optimal_batch_size} with full context length {max_length}...")
+        try:
+            torch.cuda.empty_cache()
+            gc.collect()
+            
+            dummy_input_ids = torch.randint(
+                0, tokenizer.vocab_size, 
+                (optimal_batch_size, max_length), 
+                device='cuda'
+            )
+            
+            with torch.no_grad():
+                with torch.cuda.amp.autocast():
+                    outputs = model(input_ids=dummy_input_ids)
+                    del outputs
+            
+            print(f"Confirmed batch size {optimal_batch_size} works with {max_length} tokens")
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                optimal_batch_size = max(1, optimal_batch_size // 2)
+                print(f"Full context OOM, reducing to batch size {optimal_batch_size}")
+        finally:
+            if 'dummy_input_ids' in locals():
+                del dummy_input_ids
+            torch.cuda.empty_cache()
+            gc.collect()
+    
+    print(f"\nOptimal batch size: {optimal_batch_size}")
+    
+    # calc gradient accumulation to reach target effective batch size
+    target_effective_batch_size = 16
+    grad_accum = max(1, target_effective_batch_size // optimal_batch_size)
+    
+    print(f"Gradient accumulation steps: {grad_accum}")
+    print(f"Effective batch size: {optimal_batch_size * grad_accum}")
+    
+    return optimal_batch_size, grad_accum
+
 def get_gpu_info():
     if not torch.cuda.is_available():
         return {
@@ -28,7 +120,7 @@ def get_gpu_info():
     
     available_memory = torch.cuda.mem_get_info()[0] / 1e9
     
-    memory_per_batch = 1.5  # GB
+    memory_per_batch = 5.0  # GB
     
     # Reserve 20% of memory for safety
     usable_memory = available_memory * 0.8

@@ -228,6 +228,23 @@ def main():
     
     model = get_peft_model(model, peft_config)
     model.print_trainable_parameters()
+
+    if config['training']['batch_size'] == 'auto':
+        print("\nFinding optimal batch size...")
+        try:
+            from utils import find_optimal_batch_size
+            optimal_batch_size, optimal_grad_accum = find_optimal_batch_size(
+                model, tokenizer, 
+                max_length=config['data']['max_length'],
+                starting_batch_size=8 
+            )
+            config['training']['batch_size'] = optimal_batch_size
+            config['training']['gradient_accumulation_steps'] = optimal_grad_accum
+        except:
+            # fb
+            gpu_info = get_gpu_info()
+            config['training']['batch_size'] = gpu_info['recommended_batch_size']
+            config['training']['gradient_accumulation_steps'] = gpu_info['recommended_gradient_accumulation']
     
     # log model info to mlflow
     if mlflow_available and mlflow.active_run():
