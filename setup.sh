@@ -35,7 +35,7 @@ fi
 
 echo -e "\nInstalling dependencies..."
 $PYTHON_CMD -m pip install --upgrade pip
-$PYTHON_CMD -m pip install -r requirements.txt
+$PYTHON_CMD -m pip install --force-reinstall --ignore-installed -r requirements.txt
 
 if [ -f "processed_data.zip" ]; then
     echo -e "\nExtracting processed data..."
