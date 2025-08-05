@@ -63,7 +63,7 @@ paths:
   log_dir: "./logs"
   
 mlflow:
-  tracking_uri: "http://localhost:5000"
+  tracking_uri: "https://mlflow.9a.au"
   experiment_name: "ftaudit-cloud"
   run_name: auto
   tags:
