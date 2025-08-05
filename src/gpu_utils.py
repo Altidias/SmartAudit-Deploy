@@ -135,7 +135,7 @@ def find_optimal_batch_size(model, tokenizer, max_length: int = 4096) -> Tuple[i
         if model_params > 60:  # 70B models
             test_sizes = [1, 2, 4]
         elif model_params > 6:   # 7B models
-            test_sizes = [1, 2, 4, 8, 12, 16, 24, 32]
+            test_sizes = [1, 2, 4, 8]
         else:  # Smaller models
             test_sizes = [2, 4, 8, 16, 24, 32, 48, 64]
     elif available_gb > 40:  # Mid-range GPUs (A100 40GB, A40, A6000)
