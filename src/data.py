@@ -4,15 +4,24 @@ from pathlib import Path
 import sys
 
 def load_datasets(config):
-    data_path = Path(config['data']['processed_data_path'])
+    # Check task type to determine data path
+    task_type = config['metrics'].get('task_type', 'binary')
+    
+    if task_type == 'multiclass':
+        data_path = Path('./processed_data')
+    else:
+        data_path = Path(config['data']['processed_data_path'])
     
     if not data_path.exists():
         print("ERROR: Processed data not found!")
         print(f"Expected path: {data_path}")
-        print("Please run setup.sh first to prepare the data.")
+        if task_type == 'multiclass':
+            print("Please run: python load_data_multiclass.py")
+        else:
+            print("Please run setup.sh first to prepare the data.")
         sys.exit(1)
     
-    print("\nLoading datasets...")
+    print(f"\nLoading {task_type} datasets from {data_path}...")
     train_dataset = load_from_disk(data_path / "train")
     eval_dataset = load_from_disk(data_path / "val")
     

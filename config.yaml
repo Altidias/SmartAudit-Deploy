@@ -70,6 +70,7 @@ mlflow:
     task: "vulnerability-detection"
     
 metrics:
+  task_type: "multiclass"  # Options: "binary", "multiclass"
   vulnerable_token: "vulnerable"
   safe_token: "safe"
   log_confusion_matrix: true
