@@ -64,7 +64,7 @@ paths:
   
 mlflow:
   tracking_uri: "https://mlflow.9a.au"
-  experiment_name: "ftaudit-cloud"
+  experiment_name: "smart-audit-cloud"
   run_name: auto
   tags:
     environment: "cloud"
