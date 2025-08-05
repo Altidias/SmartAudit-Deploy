@@ -33,6 +33,13 @@ fi
 # Install dependencies
 echo -e "\nInstalling dependencies..."
 $PYTHON_CMD -m pip install --upgrade pip
+
+# Fix blinker package issue (distutils installed)
+echo "Fixing blinker package..."
+$PYTHON_CMD -m pip install --ignore-installed blinker 2>/dev/null || true
+
+# Install requirements
+echo "Installing requirements..."
 $PYTHON_CMD -m pip install -r requirements.txt --exists-action i
 
 # Extract data if available
