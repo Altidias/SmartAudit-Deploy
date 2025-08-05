@@ -25,17 +25,19 @@ def get_gpu_info() -> Dict:
     total_memory = torch.cuda.get_device_properties(device).total_memory / 1e9
     available_memory = torch.cuda.mem_get_info(device)[0] / 1e9
     
+    # Conservative batch size recommendations based on GPU type
+    # For 7B models with 4096 sequence length
     gpu_configs = {
-        "A100": {"batch_size": 8, "grad_accum": 2},
-        "A6000": {"batch_size": 6, "grad_accum": 3},
-        "V100": {"batch_size": 4, "grad_accum": 4},
-        "4090": {"batch_size": 4, "grad_accum": 4},
-        "3090": {"batch_size": 2, "grad_accum": 8},
-        "A40": {"batch_size": 4, "grad_accum": 4},
-        "L40": {"batch_size": 4, "grad_accum": 4},
+        "A100": {"batch_size": 4, "grad_accum": 4},
+        "A6000": {"batch_size": 3, "grad_accum": 6},
+        "V100": {"batch_size": 2, "grad_accum": 8},
+        "4090": {"batch_size": 2, "grad_accum": 8},
+        "3090": {"batch_size": 1, "grad_accum": 16},
+        "A40": {"batch_size": 2, "grad_accum": 8},  # Reduced from 4
+        "L40": {"batch_size": 2, "grad_accum": 8},
     }
     
-    # Mtching config
+    # Find matching config
     config = {"batch_size": 2, "grad_accum": 8}  # default
     for gpu_key, gpu_config in gpu_configs.items():
         if gpu_key in gpu_name:
@@ -70,11 +72,16 @@ def test_batch_size(model, tokenizer, batch_size: int, seq_length: int) -> bool:
         )
         attention_mask = torch.ones_like(input_ids)
         
-        # Test forward pass with gradient computation
+        # Create labels for loss computation
+        labels = input_ids.clone()
+        
+        # Test forward pass with gradient computation and loss
         model.train()
         with torch.cuda.amp.autocast(enabled=True):
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-            loss = outputs.logits.mean()
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+            loss = outputs.loss
+            
+            # Also test backward pass
             loss.backward()
         
         # Clear gradients
@@ -84,8 +91,8 @@ def test_batch_size(model, tokenizer, batch_size: int, seq_length: int) -> bool:
         used_memory = torch.cuda.memory_allocated() / 1e9
         total_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
         
-        # Leave 15 headroom
-        if used_memory > total_memory * 0.85:
+        # Leave 20% headroom for safety (increased from 15%)
+        if used_memory > total_memory * 0.80:
             return False
             
         return True
@@ -98,19 +105,29 @@ def test_batch_size(model, tokenizer, batch_size: int, seq_length: int) -> bool:
         clear_gpu_memory()
 
 def find_optimal_batch_size(model, tokenizer, max_length: int = 4096) -> Tuple[int, int]:
+    """Find optimal batch size using the actual sequence length"""
     print(f"\nFinding optimal batch size for sequence length {max_length}...")
     
     # Start with conservative estimates based on model size
     model_params = sum(p.numel() for p in model.parameters()) / 1e9
     
-    if model_params > 60:  # 70B models
-        test_sizes = [1]
-    elif model_params > 10:  # 13B models
-        test_sizes = [1, 2]
-    elif model_params > 6:   # 7B models
-        test_sizes = [1, 2, 4, 6, 8]
-    else:  # Smaller models
-        test_sizes = [2, 4, 8, 12, 16]
+    # More conservative for 7B models with long sequences
+    if max_length >= 4096:
+        if model_params > 60:  # 70B models
+            test_sizes = [1]
+        elif model_params > 6:   # 7B models
+            test_sizes = [1, 2, 3, 4]
+        else:  # Smaller models
+            test_sizes = [1, 2, 4, 6, 8]
+    else:
+        if model_params > 60:  # 70B models
+            test_sizes = [1]
+        elif model_params > 10:  # 13B models
+            test_sizes = [1, 2]
+        elif model_params > 6:   # 7B models
+            test_sizes = [1, 2, 4, 6, 8]
+        else:  # Smaller models
+            test_sizes = [2, 4, 8, 12, 16]
     
     optimal_batch_size = 1
     
