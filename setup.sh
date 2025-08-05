@@ -55,11 +55,9 @@ if [ -f ".env" ]; then
     export $(grep -v '^#' .env | xargs)
 fi
 
-if [ ! -z "$WANDB_API_KEY" ]; then
-    echo -e "\nConfiguring W&B..."
-    $PYTHON_CMD -c "import wandb; wandb.login(key='$WANDB_API_KEY')"
-else
-    echo "WANDB_API_KEY not set - W&B logging will be disabled"
+if [ ! -z "$MLFLOW_TRACKING_URI" ]; then
+    echo -e "\nTesting MLflow connection..."
+    $PYTHON_CMD -c "from utils import test_mlflow_connection; test_mlflow_connection('$MLFLOW_TRACKING_URI')"
 fi
 
 if [ ! -z "$HF_TOKEN" ]; then
@@ -73,7 +71,7 @@ export CUDA_LAUNCH_BLOCKING=0
 echo -e "\n=========================================="
 echo "Setup complete!"
 echo ""
-echo "To start training, run:"
+echo "To start training:"
 echo "  $PYTHON_CMD train_cloud.py"
 echo ""
 echo "To monitor GPU usage:"
