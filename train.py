@@ -36,11 +36,14 @@ def main():
     
     # Find optimal batch size if needed
     if config['training']['batch_size'] == 'auto':
+        print("\nAuto-detecting optimal batch size...")
         batch_size, grad_accum = find_optimal_batch_size(
             model, tokenizer, config['data']['max_length']
         )
         config['training']['batch_size'] = batch_size
         config['training']['gradient_accumulation_steps'] = grad_accum
+    else:
+        print(f"\nUsing configured batch size: {config['training']['batch_size']}")
     
     # Log model info
     log_model_info(model, config)

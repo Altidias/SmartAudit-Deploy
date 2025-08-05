@@ -28,12 +28,14 @@ def get_gpu_info() -> Dict:
     # Conservative batch size recommendations based on GPU type
     # For 7B models with 4096 sequence length
     gpu_configs = {
+        "H200": {"batch_size": 16, "grad_accum": 1},  # 150GB VRAM
+        "H100": {"batch_size": 12, "grad_accum": 1},  # 80GB VRAM
         "A100": {"batch_size": 4, "grad_accum": 4},
         "A6000": {"batch_size": 3, "grad_accum": 6},
         "V100": {"batch_size": 2, "grad_accum": 8},
         "4090": {"batch_size": 2, "grad_accum": 8},
         "3090": {"batch_size": 1, "grad_accum": 16},
-        "A40": {"batch_size": 2, "grad_accum": 8},  # Reduced from 4
+        "A40": {"batch_size": 2, "grad_accum": 8},
         "L40": {"batch_size": 2, "grad_accum": 8},
     }
     
@@ -43,6 +45,14 @@ def get_gpu_info() -> Dict:
         if gpu_key in gpu_name:
             config = gpu_config
             break
+    
+    # If no match found but high memory, use appropriate settings
+    if config["batch_size"] == 2 and total_memory > 80:
+        # High memory GPU not in list (like newer GPUs)
+        if total_memory > 140:  # H200 level
+            config = {"batch_size": 16, "grad_accum": 1}
+        elif total_memory > 80:  # H100 level
+            config = {"batch_size": 12, "grad_accum": 1}
     
     # Adjust based on available memory
     if available_memory < 20:
@@ -91,8 +101,13 @@ def test_batch_size(model, tokenizer, batch_size: int, seq_length: int) -> bool:
         used_memory = torch.cuda.memory_allocated() / 1e9
         total_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
         
-        # Leave 20% headroom for safety (increased from 15%)
-        if used_memory > total_memory * 0.80:
+        # Dynamic headroom based on total memory
+        if total_memory > 80:  # High memory GPUs
+            headroom = 0.10  # 10% headroom
+        else:
+            headroom = 0.20  # 20% headroom for smaller GPUs
+        
+        if used_memory > total_memory * (1 - headroom):
             return False
             
         return True
@@ -108,26 +123,37 @@ def find_optimal_batch_size(model, tokenizer, max_length: int = 4096) -> Tuple[i
     """Find optimal batch size using the actual sequence length"""
     print(f"\nFinding optimal batch size for sequence length {max_length}...")
     
+    # Get available GPU memory
+    gpu_info = get_gpu_info()
+    available_gb = gpu_info['available_memory_gb']
+    
     # Start with conservative estimates based on model size
     model_params = sum(p.numel() for p in model.parameters()) / 1e9
     
-    # More conservative for 7B models with long sequences
-    if max_length >= 4096:
+    # Dynamic batch size testing based on available memory
+    if available_gb > 100:  # High memory GPUs (H200, H100 80GB)
+        if model_params > 60:  # 70B models
+            test_sizes = [1, 2, 4]
+        elif model_params > 6:   # 7B models
+            test_sizes = [1, 2, 4, 8, 12, 16, 24, 32]
+        else:  # Smaller models
+            test_sizes = [2, 4, 8, 16, 24, 32, 48, 64]
+    elif available_gb > 40:  # Mid-range GPUs (A100 40GB, A40, A6000)
         if model_params > 60:  # 70B models
             test_sizes = [1]
         elif model_params > 6:   # 7B models
-            test_sizes = [1, 2, 3, 4]
+            test_sizes = [1, 2, 3, 4, 6, 8]
         else:  # Smaller models
-            test_sizes = [1, 2, 4, 6, 8]
-    else:
+            test_sizes = [2, 4, 8, 12, 16]
+    else:  # Lower memory GPUs
         if model_params > 60:  # 70B models
             test_sizes = [1]
         elif model_params > 10:  # 13B models
             test_sizes = [1, 2]
         elif model_params > 6:   # 7B models
-            test_sizes = [1, 2, 4, 6, 8]
+            test_sizes = [1, 2, 4]
         else:  # Smaller models
-            test_sizes = [2, 4, 8, 12, 16]
+            test_sizes = [1, 2, 4, 8]
     
     optimal_batch_size = 1
     
@@ -143,12 +169,18 @@ def find_optimal_batch_size(model, tokenizer, max_length: int = 4096) -> Tuple[i
     
     # Calculate gradient accumulation
     target_effective_batch_size = 16
-    grad_accum = max(1, target_effective_batch_size // optimal_batch_size)
+    
+    # For high-memory GPUs, we might not need gradient accumulation
+    if optimal_batch_size >= target_effective_batch_size:
+        grad_accum = 1
+    else:
+        grad_accum = max(1, target_effective_batch_size // optimal_batch_size)
     
     print(f"\nOptimal configuration:")
     print(f"  Batch size: {optimal_batch_size}")
     print(f"  Gradient accumulation: {grad_accum}")
     print(f"  Effective batch size: {optimal_batch_size * grad_accum}")
+    print(f"  GPU: {gpu_info['name']} ({gpu_info['memory_gb']} GB)")
     
     return optimal_batch_size, grad_accum
 

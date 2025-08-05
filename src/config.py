@@ -11,12 +11,18 @@ def load_config() -> Dict:
     with open('config.yaml', 'r') as f:
         config = yaml.safe_load(f)
     
-    # Handle auto batch size
+    # Handle auto batch size - but don't override if already set
     if config['training']['batch_size'] == 'auto':
         from .gpu_utils import get_gpu_info
         gpu_info = get_gpu_info()
-        config['training']['batch_size'] = gpu_info['recommended_batch_size']
-        config['training']['gradient_accumulation_steps'] = gpu_info['recommended_gradient_accumulation']
+        print(f"GPU detected: {gpu_info['name']} ({gpu_info['memory_gb']} GB)")
+        print(f"Auto-batch will be determined during training")
+        # Don't set here - let the training script handle it
+    
+    # Handle gradient accumulation
+    if config['training'].get('gradient_accumulation_steps') == 'auto':
+        # Will be set during training
+        pass
     
     # Handle auto run name
     if config['mlflow']['run_name'] == 'auto':
