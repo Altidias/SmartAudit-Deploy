@@ -11,18 +11,12 @@ def load_config() -> Dict:
     with open('config.yaml', 'r') as f:
         config = yaml.safe_load(f)
     
-    # Handle auto batch size - but don't override if already set
+    # FTSA uses adaptive batch sizing
     if config['training']['batch_size'] == 'auto':
         from .gpu_utils import get_gpu_info
         gpu_info = get_gpu_info()
         print(f"GPU detected: {gpu_info['name']} ({gpu_info['memory_gb']} GB)")
         print(f"Auto-batch will be determined during training")
-        # Don't set here - let the training script handle it
-    
-    # Handle gradient accumulation
-    if config['training'].get('gradient_accumulation_steps') == 'auto':
-        # Will be set during training
-        pass
     
     # Handle auto run name
     if config['mlflow']['run_name'] == 'auto':
@@ -40,6 +34,8 @@ def save_training_info(config: Dict, output_dir: str):
     
     info = {
         "timestamp": datetime.now().isoformat(),
+        "framework": "SmartAudit",
+        "model_type": "student",
         "config": config,
         "gpu": get_gpu_info(),
         "system": get_system_info(),
@@ -74,47 +70,40 @@ def find_latest_checkpoint(output_dir: str) -> Optional[str]:
 def setup_environment():
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
     
     # Load .env file
     from dotenv import load_dotenv
     load_dotenv()
     
-    # Check Python version
-    import sys
-    if sys.version_info < (3, 8):
-        print("ERROR: Python 3.8+ required")
-        sys.exit(1)
-
-def check_production_readiness(eval_results: Dict, config: Dict):
+def check_readiness(eval_results: Dict, config: Dict):
     print("\n" + "="*50)
-    print("PRODUCTION READINESS CHECK")
+    print("Production Readiness Check")
     print("="*50)
     
-    # For multiclass, we check average recall across vulnerable classes
-    recall_metric = 'eval_recall_vulnerable'
-    if recall_metric not in eval_results:
-        # Fallback for binary classification
-        recall_metric = 'eval_recall'
+    recall_vuln = eval_results.get('eval_recall_vulnerable', 0)
+    f1_macro = eval_results.get('eval_f1_macro', 0)
+    accuracy = eval_results.get('eval_accuracy', 0)
     
-    recall_vuln = eval_results.get(recall_metric, 0)
-    precision = eval_results.get('eval_precision', 0)
-    min_recall = config['metrics']['minimum_recall']
-    min_precision = config['metrics']['minimum_precision']
+    # thresholds from config
+    min_recall = config['metrics'].get('minimum_recall_vulnerable', 0.90)
+    min_f1 = config['metrics'].get('minimum_f1_macro', 0.85)
     
-    if recall_vuln >= min_recall and precision >= min_precision:
-        print("✓ Model is ready for production!")
-        print(f"  Recall (vulnerable): {recall_vuln:.4f} (target: {min_recall}+)")
-        print(f"  Precision: {precision:.4f} (target: {min_precision}+)")
-    elif recall_vuln >= min_recall:
-        print("⚠ Good recall but low precision - suitable as pre-filter")
-        print(f"  Recall (vulnerable): {recall_vuln:.4f} ✓")
-        print(f"  Precision: {precision:.4f} (target: {min_precision}+)")
+    print(f"\nModel Performance:")
+    print(f"  Accuracy: {accuracy:.4f}")
+    print(f"  F1 Macro: {f1_macro:.4f} (target: {min_f1}+)")
+    print(f"  Recall (Vulnerable): {recall_vuln:.4f} (target: {min_recall}+)")
+    
+    is_ready = recall_vuln >= min_recall and f1_macro >= min_f1
+    
+    if is_ready:
+        print("\nModel is ready for production!")
+        print("  Meets all performance criteria")
     else:
-        print("✗ Model needs more training")
-        print(f"  Recall (vulnerable): {recall_vuln:.4f} (target: {min_recall}+)")
-        print(f"  Precision: {precision:.4f} (target: {min_precision}+)")
+        print("\nModel needs more training")
+        if recall_vuln < min_recall:
+            print(f"  - Improve vulnerable recall by {min_recall - recall_vuln:.4f}")
+        if f1_macro < min_f1:
+            print(f"  - Improve F1 macro by {min_f1 - f1_macro:.4f}")
     
-    # For multiclass, show additional info
-    if 'eval_num_classes' in eval_results:
-        print(f"\nMulti-class model with {eval_results['eval_num_classes']} vulnerability types")
-        print(f"Overall accuracy: {eval_results.get('eval_accuracy', 0):.4f}")
+    return is_ready
