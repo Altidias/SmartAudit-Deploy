@@ -16,7 +16,7 @@ def load_datasets(config):
         print("ERROR: Processed data not found!")
         print(f"Expected path: {data_path}")
         if task_type == 'multiclass':
-            print("Please run: python load_data_multiclass.py")
+            print("Please run: python load_data.py")
         else:
             print("Please run setup.sh first to prepare the data.")
         sys.exit(1)
