@@ -22,7 +22,7 @@ training:
   fp16: true
   fp16_opt_level: "O2"
   gradient_checkpointing: true
-  optim: "adamw_8bit"  # or "adamw_torch" for more memory
+  optim: "adamw_8bit"
   max_grad_norm: 1.0
   
   # Saving
@@ -32,12 +32,16 @@ training:
   eval_strategy: "steps"
   eval_steps: 100
   load_best_model_at_end: true
-  metric_for_best_model: "eval_loss"
+  metric_for_best_model: "eval_f1"
+  greater_is_better: true
   
   # Logging
   logging_steps: 10
   logging_first_step: true
-  report_to: "wandb"  # set to "none" if dont want
+  report_to: "none"
+  
+  # Class weighting
+  vulnerable_weight: 2.0
   
 lora:
   r: 16
@@ -58,29 +62,37 @@ paths:
   cache_dir: "./cache"
   log_dir: "./logs"
   
-wandb:
-  project: "ftaudit-cloud"
-  run_name: auto  # will be auto-generated
-  tags: ["cloud", "qwen", "vulnerability-detection"]
+mlflow:
+  tracking_uri: "http://localhost:5000"
+  experiment_name: "ftaudit-cloud"
+  run_name: auto
+  tags:
+    environment: "cloud"
+    model: "qwen"
+    task: "vulnerability-detection"
+    
+metrics:
+  vulnerable_token: "vulnerable"
+  safe_token: "safe"
+  log_confusion_matrix: true
+  save_classification_report: true
+  minimum_recall: 0.90
+  minimum_precision: 0.70
   
 # GPU-specific overrides
 gpu_configs:
-  # A100 80GB
   a100-80gb:
     batch_size: 16
     gradient_accumulation_steps: 1
     
-  # A100 40GB  
   a100-40gb:
     batch_size: 8
     gradient_accumulation_steps: 2
     
-  # RTX 4090/3090 24GB
   rtx-24gb:
     batch_size: 4
     gradient_accumulation_steps: 4
     
-  # RTX 4070/3080 16GB
   rtx-16gb:
     batch_size: 2
     gradient_accumulation_steps: 8
