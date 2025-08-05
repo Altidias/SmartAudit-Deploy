@@ -8,7 +8,7 @@ data:
   processed_data_path: "./processed_data"
   
 training:
-  # These will be auto-adjusted based on GPU
+  # Dynamic configuration - these will be auto-adjusted
   batch_size: auto  
   gradient_accumulation_steps: auto
   
@@ -24,6 +24,13 @@ training:
   gradient_checkpointing: true
   optim: "adamw_8bit"
   max_grad_norm: 1.0
+  
+  # Target effective batch size (batch_size * gradient_accumulation)
+  target_effective_batch_size: 16
+  
+  # Memory optimization
+  memory_efficient_mode: true
+  max_memory_gb: auto 
   
   # Saving
   save_strategy: "steps"
@@ -78,29 +85,3 @@ metrics:
   save_classification_report: true
   minimum_recall: 0.90
   minimum_precision: 0.70
-  
-# GPU-specific overrides
-gpu_configs:
-  a100-80gb:
-    batch_size: 16
-    gradient_accumulation_steps: 1
-    
-  a100-40gb:
-    batch_size: 8
-    gradient_accumulation_steps: 2
-    
-  rtx-24gb:
-    batch_size: 4
-    gradient_accumulation_steps: 4
-    
-  rtx-16gb:
-    batch_size: 2
-    gradient_accumulation_steps: 8
-
-  rtx-a6000-48gb:
-    batch_size: 6
-    gradient_accumulation_steps: 3
-    
-  default:
-    batch_size: 1
-    gradient_accumulation_steps: 16

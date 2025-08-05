@@ -10,6 +10,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, classification_report
 from typing import Dict, List, Tuple
 import requests
+from transformers import TrainerCallback
 
 def get_gpu_info():
     if not torch.cuda.is_available():
@@ -17,38 +18,64 @@ def get_gpu_info():
             "name": "No GPU",
             "memory_gb": 0,
             "recommended_batch_size": 1,
-            "recommended_gradient_accumulation": 16
+            "recommended_gradient_accumulation": 16,
+            "config_name": "cpu"
         }
     
     gpu_name = torch.cuda.get_device_name(0)
-    memory_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+    total_memory = torch.cuda.get_device_properties(0).total_memory
+    memory_gb = total_memory / 1e9
     
-    # GPU presets
-    if "A100" in gpu_name and memory_gb > 70:
-        config = "a100-80gb"
-        batch_size, grad_accum = 16, 1
-    elif "A100" in gpu_name and memory_gb > 35:
-        config = "a100-40gb"
-        batch_size, grad_accum = 8, 2
-    elif "A6000" in gpu_name and memory_gb > 45:
-        config = "rtx-a6000-48gb"
-        batch_size, grad_accum = 6, 3
-    elif ("4090" in gpu_name or "3090" in gpu_name) and memory_gb > 20:
-        config = "rtx-24gb"
-        batch_size, grad_accum = 4, 4
-    elif memory_gb > 14:
-        config = "rtx-16gb"
-        batch_size, grad_accum = 2, 8
+    available_memory = torch.cuda.mem_get_info()[0] / 1e9
+    
+    memory_per_batch = 1.5  # GB
+    
+    # Reserve 20% of memory for safety
+    usable_memory = available_memory * 0.8
+    
+    max_batch_size = max(1, int(usable_memory / memory_per_batch))
+    
+    target_effective_batch_size = 16
+    
+    if max_batch_size >= target_effective_batch_size:
+        batch_size = target_effective_batch_size
+        grad_accum = 1
+    elif max_batch_size >= 8:
+        batch_size = 8
+        grad_accum = 2
+    elif max_batch_size >= 4:
+        batch_size = 4
+        grad_accum = 4
+    elif max_batch_size >= 2:
+        batch_size = 2
+        grad_accum = 8
     else:
-        config = "default"
-        batch_size, grad_accum = 1, 16
+        batch_size = 1
+        grad_accum = 16
+    
+    if "A100" in gpu_name:
+        config_name = f"a100-{int(memory_gb)}gb"
+    elif "A40" in gpu_name:
+        config_name = f"a40-{int(memory_gb)}gb"
+    elif "A6000" in gpu_name:
+        config_name = f"a6000-{int(memory_gb)}gb"
+    elif "4090" in gpu_name or "3090" in gpu_name:
+        config_name = f"rtx-{int(memory_gb)}gb"
+    elif "V100" in gpu_name:
+        config_name = f"v100-{int(memory_gb)}gb"
+    elif "L40" in gpu_name:
+        config_name = f"l40-{int(memory_gb)}gb"
+    else:
+        config_name = f"gpu-{int(memory_gb)}gb"
     
     return {
         "name": gpu_name,
         "memory_gb": round(memory_gb, 1),
-        "config_name": config,
+        "available_memory_gb": round(available_memory, 1),
+        "config_name": config_name,
         "recommended_batch_size": batch_size,
-        "recommended_gradient_accumulation": grad_accum
+        "recommended_gradient_accumulation": grad_accum,
+        "max_batch_size": max_batch_size
     }
 
 def get_system_info():
@@ -287,10 +314,11 @@ class VulnerabilityMetrics:
         )
 
 
-class MetricsCallback:
+class MetricsCallback(TrainerCallback):
     """Callback to log detailed metrics during training"""
     
     def __init__(self, metrics_calculator, log_confusion_matrix=True):
+        super().__init__()
         self.metrics_calculator = metrics_calculator
         self.log_confusion_matrix = log_confusion_matrix
         self.best_f1 = 0.0
