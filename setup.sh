@@ -1,88 +1,83 @@
 #!/bin/bash
 
-echo "=========================================="
 echo "Cloud Training Setup"
-echo "=========================================="
-echo ""
+echo "===================="
 
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-if command_exists python3; then
+# Find Python
+if command -v python3 &>/dev/null; then
     PYTHON_CMD=python3
-elif command_exists python; then
+elif command -v python &>/dev/null; then
     PYTHON_CMD=python
 else
-    echo "Python not found!"
+    echo "Error: Python not found"
     exit 1
 fi
 
-echo "Using Python: $($PYTHON_CMD --version)"
+echo "Python: $($PYTHON_CMD --version)"
 
+# Check GPU
 echo -e "\nGPU Information:"
-if command_exists nvidia-smi; then
+if command -v nvidia-smi &>/dev/null; then
     nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 else
-    echo "nvidia-smi not found - GPU might not be available"
+    echo "No GPU detected"
 fi
 
+# Virtual environment (optional)
 if [ "$USE_VENV" = "true" ]; then
     echo -e "\nCreating virtual environment..."
     $PYTHON_CMD -m venv venv
     source venv/bin/activate
 fi
 
+# Install dependencies
 echo -e "\nInstalling dependencies..."
 $PYTHON_CMD -m pip install --upgrade pip
-
-$PYTHON_CMD -m pip install --ignore-installed blinker 2>/dev/null || true
-
-echo "Installing requirements..."
 $PYTHON_CMD -m pip install -r requirements.txt --exists-action i
 
-if ! $PYTHON_CMD -c "import sklearn" 2>/dev/null; then
-    echo "scikit-learn not found, installing..."
-    $PYTHON_CMD -m pip install scikit-learn
-fi
-
+# Extract data if available
 if [ -f "processed_data.zip" ]; then
-    echo -e "\nExtracting processed data..."
+    echo -e "\nExtracting data..."
     unzip -q processed_data.zip
-    echo "Data extracted successfully"
+    echo "Data extracted"
 else
-    echo "processed_data.zip not found - you'll need to process data manually"
+    echo "Warning: processed_data.zip not found"
 fi
 
-echo -e "\nCreating directories..."
-mkdir -p output
-mkdir -p cache
-mkdir -p logs
+# Create directories
+mkdir -p output cache logs src/
 
+# Environment setup
 if [ -f ".env" ]; then
-    echo -e "\nLoading environment variables..."
+    echo -e "\nLoading .env file..."
     export $(grep -v '^#' .env | xargs)
 fi
 
+# Test MLflow connection
 if [ ! -z "$MLFLOW_TRACKING_URI" ]; then
-    echo -e "\nTesting MLflow connection..."
-    $PYTHON_CMD -c "from utils import test_mlflow_connection; test_mlflow_connection('$MLFLOW_TRACKING_URI')"
+    echo -e "\nTesting MLflow..."
+    $PYTHON_CMD -c "
+import requests
+try:
+    r = requests.get('$MLFLOW_TRACKING_URI/health', timeout=5)
+    print('MLflow: OK' if r.status_code == 200 else f'MLflow: Error {r.status_code}')
+except:
+    print('MLflow: Connection failed')
+"
 fi
 
+# HuggingFace login
 if [ ! -z "$HF_TOKEN" ]; then
     echo -e "\nConfiguring HuggingFace..."
-    $PYTHON_CMD -c "from huggingface_hub import login; login(token='$HF_TOKEN')"
+    $PYTHON_CMD -c "from huggingface_hub import login; login(token='$HF_TOKEN', add_to_git_credential=False)"
 fi
 
+# Set CUDA optimizations
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 export CUDA_LAUNCH_BLOCKING=0
 
-echo -e "\n=========================================="
-echo "Setup complete!"
+echo -e "\nSetup complete!"
 echo ""
-echo "To start training:"
-echo "  $PYTHON_CMD train_cloud.py"
-echo ""
-echo "To monitor GPU usage:"
-echo "  watch -n 1 nvidia-smi"
-echo "=========================================="
+echo "To start training: $PYTHON_CMD train.py"
+echo "To test GPU: $PYTHON_CMD scripts/test_gpu.py"
+echo "To monitor: watch -n 1 nvidia-smi"

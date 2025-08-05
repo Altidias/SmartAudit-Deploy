@@ -8,31 +8,23 @@ data:
   processed_data_path: "./processed_data"
   
 training:
-  # Dynamic configuration - these will be auto-adjusted
+  # Auto-detect optimal batch size or set manually
   batch_size: auto  
   gradient_accumulation_steps: auto
   
-  # Fixed parameters
   learning_rate: 0.0005
   num_epochs: 3
   warmup_steps: 100
   weight_decay: 0.01
   
-  # Optimization
+  # Memory optimization
   fp16: true
   fp16_opt_level: "O2"
   gradient_checkpointing: true
   optim: "adamw_8bit"
   max_grad_norm: 1.0
   
-  # Target effective batch size (batch_size * gradient_accumulation)
-  target_effective_batch_size: 16
-  
-  # Memory optimization
-  memory_efficient_mode: true
-  max_memory_gb: auto 
-  
-  # Saving
+  # Checkpointing
   save_strategy: "steps"
   save_steps: 100
   save_total_limit: 3
@@ -42,12 +34,11 @@ training:
   metric_for_best_model: "eval_f1"
   greater_is_better: true
   
-  # Logging
   logging_steps: 10
   logging_first_step: true
   report_to: "none"
   
-  # Class weighting
+  # Weight for vulnerable class
   vulnerable_weight: 2.0
   
 lora:
